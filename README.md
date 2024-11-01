@@ -29,6 +29,3 @@ type Notifier interface {
 
 ## APIs Utilized
 - [Love Quote API](https://rapidapi.com/colebidex-mO-Ew1CYzUS/api/love-quote)
-
-project id = notify-440420 
-api key = AIzaSyAr9EE_mA2qw5O0stTKJSzZecfovSpjJ3U
