@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,10 +16,6 @@ import (
 	"golang.org/x/text/language"
 	"google.golang.org/api/option"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/sns"
-
 	"github.com/gen2brain/beeep"
 	"github.com/joho/godotenv"
 )
@@ -27,17 +24,47 @@ type NotifyService interface {
 	notify(text string) error
 }
 
-type SMSService struct {
-	SnsClient *sns.Client
+type TelegramMessage struct {
+	ChatID string `json:"chat_id"`
+	Text   string `json:"text"`
 }
 
-func (S *SMSService) notify(text string) error {
-	input := sns.PublishInput{
-		TopicArn: aws.String(os.Getenv("AWS_SNS_TOPIC_ARN")),
-		Message:  aws.String(text),
+type TelegramService struct{}
+
+func (t *TelegramService) notify(text string) error {
+	var buf bytes.Buffer
+	err := json.NewEncoder(&buf).Encode(TelegramMessage{
+		os.Getenv("TELEGRAM_GROUP_ID"),
+		text,
+	})
+	if err != nil {
+		return err
 	}
-	_, err := S.SnsClient.Publish(context.TODO(), &input)
-	return err
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf(
+			"https://api.telegram.org/bot%s/sendMessage",
+			os.Getenv("TELEGRAM_BOT_API_TOKEN"),
+		),
+		&buf,
+	)
+
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer res.Body.Close()
+
+	payload, err := io.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Println("here", string(payload))
+	return nil
 }
 
 type OSService struct{}
@@ -46,14 +73,12 @@ func (o *OSService) notify(text string) error {
 	return beeep.Notify("SMS notification", text, "")
 }
 
-type NotifyServiceFactory struct {
-	SnsClient *sns.Client
-}
+type NotifyServiceFactory struct{}
 
 func (n NotifyServiceFactory) createService(service string) (NotifyService, error) {
 	switch strings.ToLower(service) {
-	case "sms":
-		return &SMSService{n.SnsClient}, nil
+	case "telegram":
+		return &TelegramService{}, nil
 	case "os":
 		return &OSService{}, nil
 	default:
@@ -119,7 +144,20 @@ func getLoveQuote() (LoveQuote, error) {
 		return LoveQuote{}, err
 	}
 
+	if quote.Quote == "" {
+		return quote, fmt.Errorf("Quote is empty")
+	}
+
 	return quote, nil
+}
+
+func notifyError(service NotifyService, err error) {
+	if err != nil {
+		if serviceErr := service.notify(err.Error()); serviceErr != nil {
+			log.Fatal(serviceErr)
+		}
+		log.Fatal(err)
+	}
 }
 
 func main() {
@@ -128,13 +166,7 @@ func main() {
 		log.Fatal("Error while loading env file")
 	}
 
-	cfg, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	snsClient := sns.NewFromConfig(cfg)
-	factory := NotifyServiceFactory{snsClient}
+	factory := NotifyServiceFactory{}
 
 	osService, err := factory.createService("os")
 	if err != nil {
@@ -142,40 +174,16 @@ func main() {
 	}
 
 	quote, err := getLoveQuote()
-	if err != nil {
-		err = osService.notify(err.Error())
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Fatal(err)
-	}
+	notifyError(osService, err)
 
 	translatedText, err := quote.translateToPT()
-	if err != nil {
-		err = osService.notify(err.Error())
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Fatal(err)
-	}
+	notifyError(osService, err)
 
-	smsService, err := factory.createService("sms")
-	if err != nil {
-		err = osService.notify(err.Error())
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Fatal(err)
-	}
+	telegramService, err := factory.createService("telegram")
+	notifyError(osService, err)
 
-	err = smsService.notify(translatedText)
-	if err != nil {
-		err = osService.notify(err.Error())
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Fatal(err)
-	}
+	err = telegramService.notify(translatedText)
+	notifyError(osService, err)
 
 	err = osService.notify("SMS delivered")
 	if err != nil {
