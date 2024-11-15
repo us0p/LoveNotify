@@ -22,7 +22,7 @@ type Notifier interface {
 ## Todo
 - SNS integration
 - IAM best practices
-- Go `context` package
+- Go `testing` package
 - Go `net` package
 - Go `http` package
 - Go `json` package
@@ -31,9 +31,4 @@ type Notifier interface {
 - [Love Quote API](https://rapidapi.com/colebidex-mO-Ew1CYzUS/api/love-quote)
 
 ## Refactor SNS to Telegram bot
-- add proper notification to desktop.
-- some signals are displayed incorreclty in the chat, need to check bot api
-  to see how to edit the text to be displayed as it's.
 - add tests.
-- improve structure.
-- improve logging.
